@@ -1,0 +1,28 @@
+{
+  "name": "deep-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "基于大模型（deepseek chatgpt）,实现通用型智能体",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsup",
+    "dev": "npm run build && node dist/index.js",
+    "demo:basic": "npm run build && node dist/demo-basic.js",
+    "demo:search": "npm run build && node dist/demo-search.mjs",
+    "demo:multi": "npm run build && node dist/demo-multi-agent.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fs-extra": "^11.4.0",
+    "openai": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^26.1.2",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  }
+}
