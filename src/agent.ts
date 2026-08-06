@@ -143,6 +143,58 @@ export class ZAgent {
 
     }
 
+    // 流式调用（边生成边输出）
+    async invokeStream (userMassage: string): Promise<AgentResult> {
+        const approved = await hitlCheckpoint(userMassage, this.config.hitl)
+
+        if( !approved ) return {content: '操作已被用户取消。', message: this.conversationHistory, filesWritten: []}
+
+        this.conversationHistory.push({role: 'user', content: userMassage})
+        console.log(`\n[Agent] 收到任务：${userMassage.slice(0,80)} ${userMassage.length>80?'...':''}`)
+        console.log(`[Agent] 开始流式输出：\n`)
+        console.log(`\n ${'-'.repeat(50)}`)
+
+        let fullContent = ''
+
+        const stream = await this.clinet.chat.completions.create({
+            model: this.config.model,
+            max_tokens: this.config.maxTokens,
+            temperature: this.config.temperature,
+            stream: true,
+            messages: [
+                {role: 'system', content: this.buildSystemPrompt()},
+                // ...this.conversationHistory
+                ...this.conversationHistory.map(m=>({
+                    role: m.role as 'user' | 'assistant',
+                    content: m.content
+                }))
+            ]
+        })
+
+        for await (const chunk of stream) {
+            const delta = chunk.choices[0].delta?.content ?? ''
+            if (delta) {
+                process.stdout.write(delta)  // 控制台打印输出
+                fullContent += delta
+            }
+        }
+
+        console.log(`\n ${'-'.repeat(50)}`)
+
+        // const assistantContent = res.choices[0]?.message?.content ?? ''   // 模型回答结果
+        this.conversationHistory.push({role: 'assistant', content: fullContent}) // 将模型回答存入 历史对话
+
+        const filesWritten = await this.processFileOperations(fullContent)
+
+        console.log(`\n ${'='.repeat(50)}`)
+        console.log('\n [Agent] 流式执行完成')
+        if(filesWritten.length>0) console.log(`[Agent] 写入文件：${filesWritten.join(', ')}`)
+
+        return  {content: fullContent, message: this.conversationHistory, filesWritten}
+
+    }
+
+
     // 解析 AI 回复中的文件写入指令
     private async processFileOperations(content: string):Promise<string[]> {
         if(!this.sandbox) return  []
@@ -168,4 +220,35 @@ export class ZAgent {
         }
         return filesWritten
     }
+
+
+    // 手动写入文件
+    writeFile(fileName: string, content: string): string {
+        if (!this.sandbox) throw new Error('沙箱未初始化')
+        return this.sandbox.writeFile(fileName, content)
+    }
+
+    // 获取沙箱信息
+    getSendBox(): SandboxContent | null {
+        return this.sandbox
+    }
+
+    // 清除历史对话
+    clearHistory(): void{
+        this.conversationHistory = []
+        console.log(`[Agent] 对话历史清空`)
+    }
+
+    // 获取所有的skills
+    getSkills(): Skill[] {
+        return this.skills
+    }
+}
+
+
+// 工厂函数 快速创建并初始化 Agent
+export async function createZAgent(config: AgentConfig): Promise<ZAgent> {
+    const agent = new ZAgent(config)
+    await agent.init()
+    return agent
 }
