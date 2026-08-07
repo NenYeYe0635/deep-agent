@@ -12,7 +12,7 @@ export interface SearchResult {
 
 export class TavilySearch {
     private apiKey: string
-    private baseUrl = 'https://app.tavily.com/api/search'
+    private baseUrl = 'https://api.tavily.com/search'
 
     constructor(apiKey: string) {
         this.apiKey = apiKey

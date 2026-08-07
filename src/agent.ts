@@ -97,9 +97,9 @@ export class ZAgent {
         ## 行为准则
         - 每次回复说明你正在做什么（Planning → 执行 → 输出）
         - 需要写文件时，使用以下格式：
-        \`\`\`filename:文件名.md
+        \`\`\`\`filename:文件名.md
         文件内容
-        \`\`\`
+        \`\`\`\`
         - 如果任务超出能力范围，直接说明
         - 使用中文回复
         ${ this.config.systemPrompt }`
@@ -185,7 +185,7 @@ export class ZAgent {
         // const assistantContent = res.choices[0]?.message?.content ?? ''   // 模型回答结果
         this.conversationHistory.push({role: 'assistant', content: fullContent}) // 将模型回答存入 历史对话
 
-        const filesWritten = await this.processFileOperations(fullContent)
+        const filesWritten = await this.processFileOperations(fullContent) // 写入文件
 
         console.log(`\n ${'='.repeat(50)}`)
         console.log('\n [Agent] 流式执行完成')
@@ -202,7 +202,7 @@ export class ZAgent {
 
         const filesWritten: string[] =[]
         // 匹配  ```filename:xxx.md 或 file:xxx```  格式
-        const fileBlockRegex = /```(?:filename:|file:)([^\n]+)\n([\s\S]*?)```/g
+        const fileBlockRegex = /````(?:filename:|file:)([^\n]+)\n([\s\S]*?)````/g
         let match
         while ((match = fileBlockRegex.exec(content)) !== null) {  // 每次匹配成功 返回一个数组
             const fileName = match[1].trim() // 文件名称
@@ -211,7 +211,7 @@ export class ZAgent {
             try{
                 const approved = await hitlCheckpoint(`写入文件：${fileName}`, this.config.hitl)
                 if(approved) {
-                    const writtentPath = this.sandbox.writeFile(fileName, fileContent)
+                    const writtentPath = await this.sandbox.writeFile(fileName, fileContent)
                     filesWritten.push(fileName)
                     console.log(`[Agent] 已写入：${writtentPath}`)
                 }
@@ -224,9 +224,9 @@ export class ZAgent {
 
 
     // 手动写入文件
-    writeFile(fileName: string, content: string): string {
+    async writeFile(fileName: string, content: string): Promise<string> {
         if (!this.sandbox) throw new Error('沙箱未初始化')
-        return this.sandbox.writeFile(fileName, content)
+        return await this.sandbox.writeFile(fileName, content)
     }
 
     // 获取沙箱信息

@@ -19,7 +19,7 @@ export interface SandboxContent {
 
     outputDir?: string // 输出真实路径
 
-    writeFile: (fileName: string,content: string) => string // 写文件（在沙箱内）
+    writeFile: (fileName: string,content: string) => Promise<string> // 写文件（在沙箱内）
 
     readFile: (fileName: string) => string | null // 读文件（在沙箱内）
 
@@ -54,7 +54,7 @@ export function createSandbox(config: SandboxConfig): SandboxContent{
     }
 
     // 写文件到输出目录
-    function writeFile (fileName: string,content: string):string {
+    async function writeFile (fileName: string,content: string):Promise<string> {
         if(!isPathSafe(fileName)){
             throw new Error(`[Sandbox] 安全拦截，路径越界 ${fileName}`)
         }
