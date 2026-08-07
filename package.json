@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "npm run build && node dist/index.js",
-    "demo:basic": "npm run build && node dist/demo-basic.js",
+    "demo:basic": "npm run build && node dist/demo-base.js",
     "demo:search": "npm run build && node dist/demo-search.mjs",
     "demo:multi": "npm run build && node dist/demo-multi-agent.mjs"
   },

@@ -111,7 +111,7 @@ export function buildSkillsPrompt(skills: Skill[]): string{
     }).join('\n\n')
 
     return `
-        ## 你具备以下转向技能（skill）
+        ## 你具备以下专项技能（skill）
         ${skillDescription}
         当用户的输入符合某个技能的触发条件时， 请主动调用该技能的执行逻辑来处理任务。
     `

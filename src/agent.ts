@@ -13,7 +13,7 @@ export interface AgentConfig {
     sandbox?: SandboxConfig //  沙箱配置
     hitl?: HitlConfig // HITL配置
     systemPrompt: string // 系统提示词 （追加到默认提示词后面）
-    maxTokens: number // 最大token数 默认 4096
+    maxTokens?: number // 最大token数 默认 4096
 }
 
 
@@ -83,7 +83,7 @@ export class ZAgent {
 
     // 构建完整的 System Prompt
     private buildSystemPrompt ():string  {
-        const skillSection = buildSkillsPrompt(this.skills);
+        const skillSection = buildSkillsPrompt(this.skills);  // 将 skill 列表格式 转成 System Prompt 中的技能说明
         const sandboxSection = this.sandbox ? `\n## 工作区信息\n当前工作路径：${this.sandbox.outputDir}\n所有文件操作都写入此目录。` : ''
 
         return ` 你是 ${this.config.name} ，一个基于 Deepseek的通用型 AI 智能体。
@@ -91,7 +91,7 @@ export class ZAgent {
         - 理解用户的自然语言目标，自动规划执行步骤
         - 调用相应的 Skill 技能处理专项任务
         - 将结果写入本地文件系统
-        ${skillSection}
+        ${skillSection} 
         ${sandboxSection}
         
         ## 行为准则
@@ -108,22 +108,23 @@ export class ZAgent {
 
     // 普通调用 （非流式）
     async invoke (userMassage: string): Promise<AgentResult> {
-        const approved = await hitlCheckpoint(userMassage, this.config.hitl)
+        const approved = await hitlCheckpoint(userMassage, this.config.hitl) // 检查是否有高危操作，是否需要人工介入
 
         if( !approved ) return {content: '操作已被用户取消。', message: this.conversationHistory, filesWritten: []}
 
-        this.conversationHistory.push({role: 'user', content: userMassage})
+        this.conversationHistory.push({role: 'user', content: userMassage}) // 将用户提示词加入历史对话列表
         console.log(`\n[Agent] 收到任务：${userMassage.slice(0,80)} ${userMassage.length>80?'...':''}`)
         console.log(`[Agent] 正在思考...\n`)
 
+        // 调用deepseek
         const res = await this.clinet.chat.completions.create({
             model: this.config.model,
             max_tokens: this.config.maxTokens,
-            temperature: this.config.temperature,
+            temperature: this.config.temperature, // 温度
             messages: [
-                {role: 'system', content: this.buildSystemPrompt()},
+                {role: 'system', content: this.buildSystemPrompt()}, // 组装系统提示词
                 // ...this.conversationHistory
-                ...this.conversationHistory.map(m=>({
+                ...this.conversationHistory.map(m=>({ // 历史对话
                     role: m.role as 'user' | 'assistant',
                     content: m.content
                 }))
@@ -133,7 +134,7 @@ export class ZAgent {
         const assistantContent = res.choices[0]?.message?.content ?? ''   // 模型回答结果
         this.conversationHistory.push({role: 'assistant', content: assistantContent}) // 将模型回答存入 历史对话
 
-        const filesWritten = await this.processFileOperations(assistantContent)
+        const filesWritten = await this.processFileOperations(assistantContent) // 解析 AI 回复中的文件写入指令
 
         console.log(`\n ${'='.repeat(50)}`)
         console.log('[Agent] 执行完成')
