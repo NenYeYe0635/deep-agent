@@ -12,7 +12,7 @@ export interface AgentConfig {
     skillsDir?: string // skill目录路径
     sandbox?: SandboxConfig //  沙箱配置
     hitl?: HitlConfig // HITL配置
-    systemPrompt: string // 系统提示词 （追加到默认提示词后面）
+    systemPrompt?: string // 系统提示词 （追加到默认提示词后面）
     maxTokens?: number // 最大token数 默认 4096
 }
 
