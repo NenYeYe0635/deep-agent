@@ -1,8 +1,10 @@
-import {createSandbox, type SandboxConfig, SandboxContent} from "./sandbox.js";
-import {hitlCheckpoint, type HitlConfig} from "./hitl.js";
+import { createSandbox, type SandboxConfig, SandboxContent } from "./sandbox.js";
+import { hitlCheckpoint, type HitlConfig } from "./hitl.js";
 import { type Skill, loadSkills, buildSkillsPrompt } from './skills-loader.js'
 
 import OpenAI from 'openai'
+import {toolMap, tools} from './tools/tools.js'
+import type { ChatCompletionMessageToolCall } from "openai/resources";
 
 export interface AgentConfig {
     name: string // 智能体名称
@@ -18,10 +20,25 @@ export interface AgentConfig {
 
 
 // 输出内容
-export interface AgentMessage {
-    role: 'user' | 'assistant'  // 角色 分为 用户 或 ai助手
-    content: string
+export type AgentMessage =
+    | { role: 'system'; content: string }
+    | { role: 'user'; content: string }
+    | {
+    role: 'assistant'
+    content: string | null
+    tool_calls?: ChatCompletionMessageToolCall[]
 }
+    | {
+    role: 'tool'
+    content: string
+    tool_call_id: string
+}
+// export interface AgentMessage {
+//     role: 'user' | 'assistant' | 'tool' | 'system'  // 角色 分为 用户 或 ai助手
+//     content: string
+//     tool_calls?: ChatCompletionMessageToolCall[]
+//     tool_call_id?: string
+// }
 
 // 输出
 export interface AgentResult {
@@ -123,11 +140,7 @@ export class ZAgent {
             temperature: this.config.temperature, // 温度
             messages: [
                 {role: 'system', content: this.buildSystemPrompt()}, // 组装系统提示词
-                // ...this.conversationHistory
-                ...this.conversationHistory.map(m=>({ // 历史对话
-                    role: m.role as 'user' | 'assistant',
-                    content: m.content
-                }))
+                ...this.conversationHistory
             ]
         })
 
@@ -164,11 +177,7 @@ export class ZAgent {
             stream: true,
             messages: [
                 {role: 'system', content: this.buildSystemPrompt()},
-                // ...this.conversationHistory
-                ...this.conversationHistory.map(m=>({
-                    role: m.role as 'user' | 'assistant',
-                    content: m.content
-                }))
+                ...this.conversationHistory
             ]
         })
 
@@ -195,6 +204,134 @@ export class ZAgent {
 
     }
 
+    // 调用工具
+    async functionCalling (userMassage: string): Promise<AgentResult> {
+        const approved = await hitlCheckpoint(userMassage, this.config.hitl) // 检查是否有高危操作，是否需要人工介入
+
+        if( !approved ) return {content: '操作已被用户取消。', message: this.conversationHistory, filesWritten: []}
+
+        this.conversationHistory.push({role: 'user', content: userMassage}) // 将用户提示词加入历史对话列表
+        console.log(`\n[Agent] 收到任务：${userMassage.slice(0,80)} ${userMassage.length>80?'...':''}`)
+        console.log(`[Agent] 正在思考...\n`)
+
+        // ---------------------------------------------------------------------------------
+        let reachedMax = false
+        const MAX_CYCLES = 10 // 最大轮数
+        let cycles = 0 // 当前轮数
+        let assistantContent: string = '' // 最终回答 或 不完整回答
+
+        // let callingFuncContent: string[] // 调用方法后的回答
+
+        while (true) {
+            if (cycles++ >= MAX_CYCLES) { reachedMax = true; break }
+            // console.log(`[Agent FunctionCalling] 第${cycles}轮\n`)
+
+            let fullContent = ''
+            const toolCallsAcc:any[] = []
+
+            // 调用deepseek
+            const stream = await this.clinet.chat.completions.create({
+                model: this.config.model,
+                max_tokens: this.config.maxTokens,
+                temperature: this.config.temperature, // 温度
+                stream: true,
+                messages: [
+                    {role: 'system', content: this.buildSystemPrompt()}, // 组装系统提示词
+                    ...this.conversationHistory
+                ],
+                tools,
+                tool_choice: "auto",
+            })
+
+            for await (const chunk of stream) {
+                const delta = chunk.choices[0]?.delta
+                if (delta?.content) {
+                    process.stdout.write(delta.content)  // 控制台打印输出
+                    fullContent += delta.content
+                }
+                if (delta?.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                        const i = tc.index ?? 0
+                        toolCallsAcc[i] ??= { id: '', type: 'function', function: { name: '', arguments: '' } }
+                        if (tc.id) toolCallsAcc[i].id = tc.id
+                        if (tc.function?.name) toolCallsAcc[i].function.name += tc.function.name
+                        if (tc.function?.arguments) toolCallsAcc[i].function.arguments += tc.function.arguments
+                    }
+                }
+            }
+
+            assistantContent = fullContent ?? ''   // 模型回答结果
+
+            // const toolCalls = stream.choices[0].message.tool_calls // 获取模型想要调用的方法和参数
+            const toolCalls = toolCallsAcc.filter(Boolean) // 校验 获取模型想要调用的方法和参数
+            if (toolCalls && toolCalls.length > 0) {
+                // 工具结果加入历史对话
+                this.conversationHistory.push({
+                    role: 'assistant',
+                    content: assistantContent,
+                    tool_calls: toolCalls,
+                })
+                // 调用工具
+                for (const call of toolCalls) {
+                    // 跳过非 function 类型的工具调用
+                    if (call.type !== 'function') {
+                        this.conversationHistory.push({
+                            role: 'tool',
+                            tool_call_id: call.id,
+                            content: `不支持的工具类型: ${call.type}`,
+                        })
+                        continue
+                    }
+
+                    //  FunctionToolCall
+                    const fn = toolMap[call.function.name]
+                    if (!fn) {
+                        this.conversationHistory.push({
+                            role: 'tool',
+                            tool_call_id: call.id,
+                            content: `未知工具: ${call.function.name}`,
+                        })
+                        continue
+                    }
+
+                    let result: string
+                    try {
+                        const args = JSON.parse(call.function.arguments || '{}')
+                        result = await fn(args)
+                    } catch (e) {
+                        result = `工具执行失败: ${(e as Error).message}`
+                    }
+
+                    this.conversationHistory.push({
+                        role: 'tool',
+                        tool_call_id: call.id,
+                        content: result,
+                    })
+                }
+            } else {
+                this.conversationHistory.push({role: 'assistant', content: assistantContent}) // 将模型回答存入 历史对话
+                break
+            }
+        }
+
+        // -----------------------------------------------------------------------------
+
+        const filesWritten = await this.processFileOperations(assistantContent) // 解析 AI 回复中的文件写入指令
+
+        console.log(`\n ${'='.repeat(50)}`)
+        console.log('[Agent] 执行完成')
+        if(filesWritten.length>0) console.log(`[Agent] 写入文件：${filesWritten.join(', ')}`)
+
+        if (reachedMax) {
+            return {
+                content: assistantContent + '\n触发最大循环限制，可能未作出完整回答',
+                message: this.conversationHistory,
+                filesWritten
+            }
+        }
+        return  {content: assistantContent, message: this.conversationHistory, filesWritten}
+    }
+
 
     // 解析 AI 回复中的文件写入指令
     private async processFileOperations(content: string):Promise<string[]> {
@@ -211,9 +348,9 @@ export class ZAgent {
             try{
                 const approved = await hitlCheckpoint(`写入文件：${fileName}`, this.config.hitl)
                 if(approved) {
-                    const writtentPath = await this.sandbox.writeFile(fileName, fileContent)
+                    const writtenPath = await this.sandbox.writeFile(fileName, fileContent)
                     filesWritten.push(fileName)
-                    console.log(`[Agent] 已写入：${writtentPath}`)
+                    console.log(`[Agent] 已写入：${writtenPath}`)
                 }
             }catch (e) {
                 console.error(`[Agent] 写入失败 ${fileName}`,e)

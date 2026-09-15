@@ -1,12 +1,11 @@
-
-// 主入口 交互式对话模式 npm run dev 运行
+// 主入口 交互式对话模式 npm run dev:calling 运行
 import 'dotenv/config'
 import readline from "readline";
 import { createZAgent } from "./agent.js";
 
 async function main() {
     const agent = await createZAgent({
-        name: 'ZAgent(deepseek) - 搜索 + 生成文件 写入文件',
+        name: 'ZAgent(deepseek) - 调用工具',
         skillsDir: '.dw/skills',
         sandbox: {workspacePath: process.cwd(), outputDir: 'output', verbose: true},
         hitl: {
@@ -19,6 +18,7 @@ async function main() {
             - LangChain / Deep Agent AI 应用开发
             - 代码审查和架构设计建议
             - 技术文档生成
+            - 工具调用
         
             回复要求：
             - 使用中文回复
@@ -44,6 +44,7 @@ async function main() {
     const askQuestion = (prompt: string): Promise<string> =>
         new Promise((resolve) => rl.question(prompt, resolve))
 
+
     while (true) {
         const userInput = await askQuestion('\n你：')
         if (userInput.trim().toLowerCase() === 'exit') {
@@ -58,7 +59,7 @@ async function main() {
         if (!userInput.trim()) continue;
 
         process.stdout.write('zOpenCodex 正在思考...')
-        await agent.invokeStream(userInput)
+        await agent.functionCalling(userInput)
     }
 }
 

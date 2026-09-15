@@ -9,7 +9,8 @@
     "dev": "npm run build && node dist/index.js",
     "demo:basic": "npm run build && node dist/demo-base.js",
     "demo:search": "npm run build && node dist/demo-search.js",
-    "demo:multi": "npm run build && node dist/demo-multi-agent.js"
+    "demo:multi": "npm run build && node dist/demo-multi-agent.js",
+    "dev:calling": "npm run build && node dist/functionCalling.js"
   },
   "keywords": [],
   "author": "",
